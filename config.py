@@ -17,7 +17,8 @@ dbname = 'face_db'
 path = "/person_pic/"
 
 # 预训练模型名
-model = "20170512-110547"
+model = "model/20170512-110547"
+emo_model = "model/model_emo/model.h5"
 
 init_database = False
 

@@ -21,6 +21,8 @@ import cv2
 import copy
 import pymysql
 import config
+from face_pose_estimation.FacePoseEstimator import FacePoseEstimator
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,7 @@ def softmax_label(X):
 
 class face_reginition:
 
-    def __init__(self, dburl, username, password, dbname, model, path,detect_multiple_faces=True):
+    def __init__(self, dburl, username, password, dbname, model, path, emo_model,detect_multiple_faces=True):
 
         # 运行模式  0：展示模式  1：人脸检测模式  2：手势识别模式
         self.running_mode = 1
@@ -82,11 +84,14 @@ class face_reginition:
         # 识别准确率阈值,如果距离超过阈值，则认为不匹配，否则匹配成功
         self.min_face_distance = 1
 
+        self.emo_model = emo_model
         self.face_reginition_mode=1
         self.emotion_reginition_mode=0
         if(self.emotion_reginition_mode==1):
             # 加载表情识别模型
             self.load_emotion_model()
+
+        self.fpe=FacePoseEstimator()
 
     def set_runing_mode(self, runing_mode):
         face_reginition_mode = 1
@@ -101,7 +106,7 @@ class face_reginition:
         # 加载第一个模型
         with sess1.as_default():
             with g1.as_default():
-                json_file = open('hhy_emo/model.json', 'r')
+                json_file = open(self.emo_model, 'r')
                 loaded_model_json = json_file.read()
                 json_file.close()
                 print("加载keras模型成功")
@@ -377,12 +382,14 @@ class face_reginition:
                         gray = facenet.to_rgb(gray)
                     img = gray[:, :, 0:3]
 
+
                     # capture frame-by-frame
                     if (self.face_reginition_mode == 1):
                         bboxs = self.detectFaceBoundingBox_mtcnn(img, self.minsize, pnet, rnet, onet,
                                                                  self.threshold, self.factor,
                                                                  self.margin, self.detect_multiple_faces)
                         if (bboxs != None):
+                            im = self.fpe.doFaceEstimater(frame)
                             max_width = self.get_max_width_from_bounding_boxes(bboxs)
                             # 人脸处理开始
                             for i, bb in enumerate(bboxs):
@@ -477,7 +484,7 @@ if __name__ == "__main__":
 
     path = os.getcwd() + config.path
 
-    fg = face_reginition(config.dburl, config.username, config.password, config.dbname, config.model, path)
+    fg = face_reginition(config.dburl, config.username, config.password, config.dbname, config.model, path, config.emo_model)
 
     if(config.init_database):
         # 初始数据库数据
