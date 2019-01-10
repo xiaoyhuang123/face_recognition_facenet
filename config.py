@@ -22,6 +22,6 @@ emo_model = "model/model_emo/model.h5"
 
 init_database = False
 
-# 掩码   从左至右：第一位：人脸识别模式  第三位：情感分析模式
+# 掩码   从左至右：第一位：人脸识别模式  第二位：情感分析模式
 # 0：关闭    1：开启
 runing_mode="11"
