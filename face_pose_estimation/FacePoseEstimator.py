@@ -13,18 +13,20 @@ import dlib
 import time
 import math
 import os
+from utils import Logger
 
+logger = Logger(__name__)
 
 class FacePoseEstimator:
 
-    def __init__(self):
+    def __init__(self, model):
         self.detector = dlib.get_frontal_face_detector()
-        f_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..")) + "/model/shape_predictor_68_face_landmarks.dat"
+        f_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..")) + model
         self.predictor = dlib.shape_predictor(f_dir)
         self.POINTS_NUM_LANDMARK = 68
 
     # 获取最大的人脸
-    def _largest_face(self,dets):
+    def _largest_face(self, dets):
         if len(dets) == 1:
             return 0
 
@@ -41,17 +43,17 @@ class FacePoseEstimator:
 
         return largest_index
 
-    def processImage(self,img):
+    def processImage(self, img):
         size = img.shape
         if size[0] > 700:
             h = size[0] / 3
             w = size[1] / 3
             img = cv2.resize(img, (int(w), int(h)), interpolation=cv2.INTER_CUBIC)
             size = img.shape
-        return size,img
+        return size, img
 
     # 从dlib的检测结果抽取姿态估计需要的点坐标
-    def get_image_points_from_landmark_shape(self,landmark_shape):
+    def get_image_points_from_landmark_shape(self, landmark_shape):
         if landmark_shape.num_parts != self.POINTS_NUM_LANDMARK:
             print("ERROR:landmark_shape.num_parts-{}".format(landmark_shape.num_parts))
             return -1, None
@@ -84,7 +86,7 @@ class FacePoseEstimator:
         return self.get_image_points_from_landmark_shape(landmark_shape)
 
     # 获取旋转向量和平移向量
-    def get_pose_estimation(self,img_size, image_points):
+    def get_pose_estimation(self, img_size, image_points):
         # 3D model points.
         model_points = np.array([
             (0.0, 0.0, 0.0),  # Nose tip
@@ -107,6 +109,7 @@ class FacePoseEstimator:
         )
 
         print("Camera Matrix :{}".format(camera_matrix))
+        logger.info("Camera Matrix :{}".format(camera_matrix))
 
         dist_coeffs = np.zeros((4, 1))  # Assuming no lens distortion
         (success, rotation_vector, translation_vector) = cv2.solvePnP(model_points, image_points, camera_matrix,
@@ -114,6 +117,8 @@ class FacePoseEstimator:
 
         print("Rotation Vector:\n {}".format(rotation_vector))
         print("Translation Vector:\n {}".format(translation_vector))
+        logger.info("Rotation Vector:\n {}".format(rotation_vector))
+        logger.info("Translation Vector:\n {}".format(translation_vector))
         return success, rotation_vector, translation_vector, camera_matrix, dist_coeffs
 
     # 从旋转向量转换为欧拉角
@@ -162,15 +167,15 @@ class FacePoseEstimator:
         ret, image_points = self.get_image_points(im)
         if ret != 0:
             print('get_image_points failed')
-            return
+            return im
 
         ret, rotation_vector, translation_vector, camera_matrix, dist_coeffs = self.get_pose_estimation(size,
-                                                                                                       image_points)
+                                                                                                        image_points)
         if ret != True:
             print('get_pose_estimation failed')
             return
-        #used_time = time.time() - start_time
-        #print("used_time:{} sec".format(round(used_time, 3)))
+        # used_time = time.time() - start_time
+        # print("used_time:{} sec".format(round(used_time, 3)))
 
         ret, pitch, yaw, roll = self.get_euler_angle(rotation_vector)
         euler_angle_str = 'Y:{}, X:{}, Z:{}'.format(pitch, yaw, roll)
@@ -188,33 +193,33 @@ class FacePoseEstimator:
         p1 = (int(image_points[0][0]), int(image_points[0][1]))
         p2 = (int(nose_end_point2D[0][0][0]), int(nose_end_point2D[0][0][1]))
 
+        cv2.putText(im, str(rotation_vector), (0, 100), cv2.FONT_HERSHEY_PLAIN, 1, (0, 0, 255), 1)
+        cv2.putText(im, euler_angle_str, (0, 120), cv2.FONT_HERSHEY_PLAIN, 1, (0, 0, 255), 1)
+
         cv2.line(im, p1, p2, (255, 0, 0), 2)
         return im
 
 
 
-f_dir =os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))+"/model/"
-print(os.listdir(f_dir))
-# if __name__ == '__main__':
-#
-#     fpe = FacePoseEstimator()
-#
-#     # rtsp://admin:ts123456@10.20.21.240:554
-#     cap = cv2.VideoCapture(0)
-#     while (cap.isOpened()):
-#         start_time = time.time()
-#
-#         # Read Image
-#         ret, im = cap.read()
-#         if ret != True:
-#             print('read frame failed')
-#             continue
-#         size = im.shape
-#
-#         im = fpe.doFaceEstimater(im)
-#
-#         # Display image
-#         # cv2.putText( im, str(rotation_vector), (0, 100), cv2.FONT_HERSHEY_PLAIN, 1, (0, 0, 255), 1 )
-#         #cv2.putText(im, euler_angle_str, (0, 120), cv2.FONT_HERSHEY_PLAIN, 1, (0, 0, 255), 1)
-#         cv2.imshow("Output", im)
-#         cv2.waitKey(1)
+if __name__ == '__main__':
+
+    face_estimator_model = "/model/shape_predictor_68_face_landmarks.dat"
+    fpe = FacePoseEstimator(face_estimator_model)
+
+    # rtsp://admin:ts123456@10.20.21.240:554
+    cap = cv2.VideoCapture(0)
+    while (cap.isOpened()):
+        start_time = time.time()
+
+        # Read Image
+        ret, im = cap.read()
+        if ret != True:
+            print('read frame failed')
+            continue
+        size = im.shape
+
+        im = fpe.doFaceEstimater(im)
+
+        cv2.imshow("Output", im)
+
+        cv2.waitKey(1)

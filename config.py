@@ -17,9 +17,9 @@ dbname = 'face_db'
 path = "/person_pic/"
 
 # 预训练模型名
-model = "model/20170512-110547"
-emo_model = "model/model_emo/model.h5"
-
+face_recognition_model = "model/20170512-110547"
+face_emotion_model = "model/model_emo/model.h5"
+face_estimator_model="/model/shape_predictor_68_face_landmarks.dat"
 init_database = False
 
 # 掩码   从左至右：第一位：人脸识别模式  第二位：情感分析模式
