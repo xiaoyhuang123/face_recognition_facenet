@@ -138,6 +138,10 @@ class FacePoseEstimator:
         t1 = 1.0 - 2.0 * (x * x + ysqr)
         print('t0:{}, t1:{}'.format(t0, t1))
         pitch = math.atan2(t0, t1)
+        # 但是我们发现第pitch坐标抖动很厉害，而且是在正负之间震荡，
+        # 但是在一定范围内是随点头的幅度呈近似线性关系，所以考虑是坐标角度变换的问题，在减去180度发现是从0度直接到-360，所以是互补的问题：
+        if(pitch<=-180):
+            pitch = pitch+180
 
         # yaw (y-axis rotation)
         t2 = 2.0 * (w * y - z * x)
@@ -167,19 +171,28 @@ class FacePoseEstimator:
         ret, image_points = self.get_image_points(im)
         if ret != 0:
             print('get_image_points failed')
-            return im
+            return im,None,None,None
 
         ret, rotation_vector, translation_vector, camera_matrix, dist_coeffs = self.get_pose_estimation(size,
                                                                                                         image_points)
         if ret != True:
             print('get_pose_estimation failed')
-            return
+            return im,None,None,None
         # used_time = time.time() - start_time
         # print("used_time:{} sec".format(round(used_time, 3)))
 
         ret, pitch, yaw, roll = self.get_euler_angle(rotation_vector)
         euler_angle_str = 'Y:{}, X:{}, Z:{}'.format(pitch, yaw, roll)
         print(euler_angle_str)
+
+        # Yaw:摇头
+        # 左正右负
+        #
+        # Pitch:点头
+        # 上负下正
+        #
+        # Roll:摆头（歪头）左负
+        # 右正
 
         # Project a 3D point (0, 0, 1000.0) onto the image plane.
         # We use this to draw a line sticking out of the nose
@@ -197,7 +210,7 @@ class FacePoseEstimator:
         cv2.putText(im, euler_angle_str, (0, 120), cv2.FONT_HERSHEY_PLAIN, 1, (0, 0, 255), 1)
 
         cv2.line(im, p1, p2, (255, 0, 0), 2)
-        return im
+        return im,pitch, yaw, roll
 
 
 
@@ -208,6 +221,10 @@ if __name__ == '__main__':
 
     # rtsp://admin:ts123456@10.20.21.240:554
     cap = cv2.VideoCapture(0)
+
+    frame_counter = 0  # 连续帧计数
+    shake_counter = 0  # 眨眼计数
+
     while (cap.isOpened()):
         start_time = time.time()
 
@@ -218,8 +235,18 @@ if __name__ == '__main__':
             continue
         size = im.shape
 
-        im = fpe.doFaceEstimater(im)
+        im,pitch, yaw, roll = fpe.doFaceEstimater(im)
 
+        # 如果EAR小于阈值，开始计算连续帧，只有连续帧计数超过EYE_AR_CONSEC_FRAMES时，才会计做一次眨眼
+        if(yaw is not None):
+            if yaw < 0.3:
+                frame_counter += 1
+            else:
+                if frame_counter > 0.3:
+                    shake_counter += 1
+                frame_counter = 0
+
+        cv2.putText(im, "shakeHead:{0}".format(shake_counter), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         cv2.imshow("Output", im)
 
         cv2.waitKey(1)
