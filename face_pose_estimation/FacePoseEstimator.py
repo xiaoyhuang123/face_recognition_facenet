@@ -17,6 +17,9 @@ from utils import Logger
 
 logger = Logger(__name__)
 
+import win32com.client
+speaker = win32com.client.Dispatch("SAPI.SpVoice")
+
 class FacePoseEstimator:
 
     def __init__(self, model):
@@ -244,6 +247,7 @@ if __name__ == '__main__':
             else:
                 if frame_counter > 0.3:
                     shake_counter += 1
+                    speaker.Speak("摇头")
                 frame_counter = 0
 
         cv2.putText(im, "shakeHead:{0}".format(shake_counter), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)

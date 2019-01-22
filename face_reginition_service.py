@@ -22,31 +22,24 @@ import copy
 import pymysql
 import config
 from face_pose_estimation.FacePoseEstimator import FacePoseEstimator
+from InputObject import DetectObj
+from sklearn.neighbors import KNeighborsClassifier
 from utils import knn_clf_for_face_reginition,softmax_label,to_rgb,Logger
 logger = Logger(__name__)
 
 import logging
-import json
-import pickle
 
 logger = logging.getLogger(__name__)
 
 from keras.models import model_from_json
-
-import win32com.client
-speaker = win32com.client.Dispatch("SAPI.SpVoice")
-
-g1 = tf.Graph()
-sess1 = tf.Session(graph=g1)  # Session1
-
-from sklearn.neighbors import KNeighborsClassifier
-
+# import win32com.client
+# speaker = win32com.client.Dispatch("SAPI.SpVoice")
 
 class face_reginition:
 
     def __init__(self, dburl, username, password, dbname, model, path, emo_model, estimator_model,
                  detect_multiple_faces=True):
-
+        print("face_reginition init start")
         # 运行模式  0：展示模式  1：人脸检测模式  2：手势识别模式
         self.running_mode = 1
 
@@ -83,6 +76,30 @@ class face_reginition:
 
         self.fpe = FacePoseEstimator(estimator_model)
 
+        self.fname_list, self.face_encode_list = self.query_face_feature_from_db()
+        # self.knn = KNeighborsClassifier(n_neighbors=1)
+        # self.knn.fit(self.face_encode_list, self.fname_list)
+
+        self.graph = tf.Graph()
+        self.sess = tf.Session(graph=self.graph)
+
+        self.graph1 = tf.Graph()
+        self.sess1 = tf.Session(graph=self.graph1)
+        ####################################################
+        with self.sess.as_default():
+            with self.graph.as_default():
+                # Load the model
+                print("face_reginition init load facenet model")
+                facenet.load_model(self.model)
+                # Get input and output tensors
+                self.images_placeholder = tf.get_default_graph().get_tensor_by_name("input:0")
+                self.embeddings = tf.get_default_graph().get_tensor_by_name("embeddings:0")
+                self.phase_train_placeholder = tf.get_default_graph().get_tensor_by_name("phase_train:0")
+
+                self.pnet, self.rnet, self.onet = self.load_pronet(self.sess)
+        print("face_reginition init end")
+
+
     def set_runing_mode(self, runing_mode):
         face_reginition_mode = 1
         emotion_reginition_mode = 1
@@ -94,8 +111,8 @@ class face_reginition:
 
     def load_emotion_model(self):
         # 加载第一个模型
-        with sess1.as_default():
-            with g1.as_default():
+        with self.sess1.as_default():
+            with self.sess.graph.as_default():
                 json_file = open(self.emo_model, 'r')
                 loaded_model_json = json_file.read()
                 json_file.close()
@@ -129,10 +146,10 @@ class face_reginition:
         return image_files
 
     # load pnet/rnet/onet
-    def load_pronet(self, gpu_memory_fraction=1.0):
+    def load_pronet(self,sess, gpu_memory_fraction=1.0):
         print('Creating networks and loading parameters')
         logger.info('Creating networks and loading parameters')
-        with tf.Graph().as_default():
+        with sess.graph.as_default():
             gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=gpu_memory_fraction)
             sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False))
             with sess.as_default():
@@ -196,11 +213,13 @@ class face_reginition:
         return max_width
 
     # 人脸区域框检测
-    def detectFaceBoundingBox_mtcnn(self, img, minsize, pnet, rnet, onet, threshold, factor, margin,
-                                    detect_multiple_faces):
+    def detectFaceBoundingBox_mtcnn(self, img):
         img_size = np.asarray(img.shape)[0:2]
-        bounding_boxes, _ = align.detect_face.detect_face(img, minsize, pnet, rnet, onet, threshold,
-                                                          factor)  # 利用dect_face检测人脸
+        bounding_boxes, _ = align.detect_face.detect_face(img, self.minsize, self.pnet, self.rnet, self.onet, self.threshold,
+                                                          self.factor)  # 利用dect_face检测人脸
+
+        margin= self.margin
+        detect_multiple_faces = self.detect_multiple_faces
         # 这里的bounding_boxes实质上是指四个点 四个点连起来构成一个框
         if len(bounding_boxes) < 1:
             print("can't detect face ")  # 当识别不到脸型的时候,不保留
@@ -236,6 +255,8 @@ class face_reginition:
             bbox.append(bb)
         return bbox
 
+        # 人脸区域框检测
+
     def load_and_align_candiate_data(self, image_paths, image_size, margin, pnet, rnet, onet):
 
         tmp_image_paths = copy.copy(image_paths)
@@ -262,30 +283,49 @@ class face_reginition:
         # images = np.stack(img_list)
         return img_list
 
+    def load_and_align_candiate_data_service(self, image_paths, image_size, margin, pnet, rnet, onet):
+
+        tmp_image_paths = copy.copy(image_paths)
+        img_list = []
+        for image in tmp_image_paths:
+            print("load_and_align_candiate_data_service - info,img=", image)
+            img = misc.imread(image, mode='RGB')
+            img_size = np.asarray(img.shape)[0:2]
+            bounding_boxes, _ = align.detect_face.detect_face(img, self.minsize, pnet, rnet, onet, self.threshold,
+                                                              self.factor)
+            if len(bounding_boxes) < 1:
+                image_paths.remove(image)
+                print("can't detect face, remove ", image)
+                continue
+            det = np.squeeze(bounding_boxes[0, 0:4])
+            bb = np.zeros(4, dtype=np.int32)
+            bb[0] = np.maximum(det[0] - margin / 2, 0)
+            bb[1] = np.maximum(det[1] - margin / 2, 0)
+            bb[2] = np.minimum(det[2] + margin / 2, img_size[1])
+            bb[3] = np.minimum(det[3] + margin / 2, img_size[0])
+            cropped = img[bb[1]:bb[3], bb[0]:bb[2], :]
+            aligned = misc.imresize(cropped, (image_size, image_size), interp='bilinear')
+            prewhitened = facenet.prewhiten(aligned)
+            img_list.append(prewhitened)
+        # images = np.stack(img_list)
+        return img_list
     # 预生成特征向量，保存至数据库，后续直接数据库获取即可
     def save_face_feature_to_db(self):
+        print("save_face_feature_to_db start")
         with tf.Graph().as_default():
             with tf.Session() as sess:
-                # Load the model
-                facenet.load_model(self.model)
-                # Get input and output tensors
-                images_placeholder = tf.get_default_graph().get_tensor_by_name("input:0")
-                embeddings = tf.get_default_graph().get_tensor_by_name("embeddings:0")
-                phase_train_placeholder = tf.get_default_graph().get_tensor_by_name("phase_train:0")
-
-                pnet, rnet, onet = self.load_pronet()
                 image_files = self.get_candidate_person_pics()
 
-                candiate_img_list = self.load_and_align_candiate_data(image_files, self.image_size, self.margin, pnet,
-                                                                      rnet, onet)
+                candiate_img_list = self.load_and_align_candiate_data(image_files, self.image_size, self.margin, self.pnet,
+                                                                      self.rnet, self.onet)
                 assert len(candiate_img_list) > 0
                 img_list = []
                 img_list.extend(candiate_img_list)
                 images = np.stack(img_list)
 
                 # Run forward pass to calculate embeddings
-                feed_dict = {images_placeholder: images, phase_train_placeholder: False}
-                emb = sess.run(embeddings, feed_dict=feed_dict)
+                feed_dict = {self.images_placeholder: images, self.phase_train_placeholder: False}
+                emb = sess.run(self.embeddings, feed_dict=feed_dict)
 
                 img_files_set = []
                 img_files_set.extend(image_files)
@@ -318,7 +358,65 @@ class face_reginition:
                     db.rollback()
                 # 关闭数据库连接
                 db.close()
-                print('save to db done')
+                print('save_face_feature_to_db save to db done')
+
+        # 预生成特征向量，保存至数据库，后续直接数据库获取即可
+    def save_face_feature_to_db_from_input(self, image_files, name):
+        print("save_face_feature_to_db from input start, img_files=", image_files, " name=", name)
+        with self.sess.graph.as_default():
+            with self.sess.as_default():
+
+                candiate_img_list = self.load_and_align_candiate_data_service(image_files, self.image_size, self.margin,
+                                                                      self.pnet,
+                                                                      self.rnet, self.onet)
+                print("save_face_feature_to_db_from_input len(candiate_img_list)=", len(candiate_img_list))
+                if(len(candiate_img_list)!=1):
+                    return False,"save img must be single face."
+
+                #assert len(candiate_img_list) > 0
+                img_list = []
+                img_list.extend(candiate_img_list)
+                images = np.stack(img_list)
+
+                # Run forward pass to calculate embeddings
+                feed_dict = {self.images_placeholder: images, self.phase_train_placeholder: False}
+                emb = self.sess.run(self.embeddings, feed_dict=feed_dict)
+
+                img_files_set = []
+                img_files_set.extend(image_files)
+                nrof_images = len(img_files_set)
+
+                print('Images:')
+                for i in range(nrof_images):
+                    print('%1d: %s' % (i, img_files_set[i]))
+                print('')
+
+                # 打开数据库连接
+                db = pymysql.connect(self.dburl, self.username, self.password, self.dbname, charset='utf8')
+                try:
+                    # 使用cursor()方法获取操作游标
+                    cursor = db.cursor()
+                    # SQL 插入语句
+                    for i in range(nrof_images):
+                        f_encode = '#'.join(map(str, emb[i, :]))
+                        # f_name = os.path.splitext(img_files_set[i])[0]
+                        f_name = name#str(img_files_set[i]).split('/')[0]
+                        f_file_name = img_files_set[i]
+                        sql = "INSERT INTO face_data(f_name,f_encode,f_file_name)  VALUES('%s','%s','%s')" % (
+                            f_name, f_encode, f_file_name)
+                        print('sql=', sql)
+                        # 执行sql语句
+                        cursor.execute(sql)
+                        db.commit()
+                except:
+                    # 如果发生错误则回滚
+                    db.rollback()
+                # 关闭数据库连接
+                db.close()
+                #重新加载
+                self.fname_list, self.face_encode_list = self.query_face_feature_from_db()
+                print('save_face_feature_to_db save to db done')
+                return True,"success"
 
     def do_emotion_reginition_process(self, face_image_gray):
         # 加载第一个模型
@@ -333,153 +431,95 @@ class face_reginition:
                 res = [angry, fear, happy, sad, surprise, neutral]
                 return emotion_labels[res.index(max(res))]
 
-    def do_face_reginition_process(self):
-        with tf.Graph().as_default():
-            with tf.Session() as sess:
-                # Load the model
-                facenet.load_model(self.model)
-                # Get input and output tensors
-                images_placeholder = tf.get_default_graph().get_tensor_by_name("input:0")
-                embeddings = tf.get_default_graph().get_tensor_by_name("embeddings:0")
-                phase_train_placeholder = tf.get_default_graph().get_tensor_by_name("phase_train:0")
+    def do_face_reginition_process_from_input(self, filepath):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                # 处理传入的图片
+                frame = misc.imread(filepath)
+                res=[]
 
-                # 获取摄像头采集
-                cap = self.get_capture_cv2()
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                ori_img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                if gray.ndim == 2:
+                    gray = to_rgb(gray)
+                img = gray[:, :, 0:3]
+                bboxs = self.detectFaceBoundingBox_mtcnn(img)
+                if (bboxs != None):
+                    #im = self.fpe.doFaceEstimater(frame)
+                    # 人脸处理开始
+                    for i, bb in enumerate(bboxs):
+                        x = bb[0]
+                        y = bb[1]
+                        x1 = bb[2]
+                        y1 = bb[3]
 
-                pnet, rnet, onet = self.load_pronet()
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                font_size = 1
-                index = 0
+                        cv2.rectangle(frame, (x, y), (x1, y1), (0, 255, 0), 2)
 
-                image_save = False
+                        reginized_name = None
+                        emotion_detect = None
+                        cropped = frame[bb[1]:bb[3], bb[0]:bb[2], :]
 
-                fname_list, face_encode_list = self.query_face_feature_from_db()
+                        if (self.emotion_reginition_mode):
+                            # print('index ================', index)
+                            t = ori_img[bb[1]:bb[3], bb[0]:bb[2]]
+                            emotion_detect = self.do_emotion_reginition_process(t)
 
-                knn = KNeighborsClassifier(n_neighbors=1)
-                knn.fit(face_encode_list, fname_list)
+                        # 图像处理
+                        img_list = []
+                        aligned = misc.imresize(cropped, (self.image_size, self.image_size),
+                                                interp='bilinear')
+                        prewhitened = facenet.prewhiten(aligned)
+                        img_list.append(prewhitened)
+                        images = np.stack(img_list)
 
-                while (True):
-                    """
-                    process input key
-                    """
-                    k = cv2.waitKey(1)
-                    if k == ord('q'):  # 按q键退出
-                        break
-                    if k == ord('s'):  # 按s键保存
-                        image_save = True
+                        # Run forward pass to calculate embeddings
+                        feed_dict = {self.images_placeholder: images, self.phase_train_placeholder: False}
+                        emb = self.sess.run(self.embeddings, feed_dict=feed_dict)
+                        # 获取当前检测出的人脸编码值
+                        current_emb = emb[0, :]
 
-                    index += 1
-                    ret, frame = cap.read()
-                    print("frame----=", pickle.dumps(frame))
-                    # our operation on the frame come here
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    ori_img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    if gray.ndim == 2:
-                        gray = to_rgb(gray)
-                    img = gray[:, :, 0:3]
+                        # person_name = knn.predict([current_emb])[0]
+                        # print("***********************knn classifier person name result:", person_name)
 
-                    # capture frame-by-frame
-                    if (self.face_reginition_mode == 1):
-                        bboxs = self.detectFaceBoundingBox_mtcnn(img, self.minsize, pnet, rnet, onet,
-                                                                 self.threshold, self.factor,
-                                                                 self.margin, self.detect_multiple_faces)
-                        if (bboxs != None):
-                            im = self.fpe.doFaceEstimater(frame)
-                            max_width = self.get_max_width_from_bounding_boxes(bboxs)
-                            # 人脸处理开始
-                            for i, bb in enumerate(bboxs):
-                                x = bb[0]
-                                y = bb[1]
-                                x1 = bb[2]
-                                y1 = bb[3]
-                                # 绘制人名的坐标点
-                                text_x = int((x + x1) / 2)
-                                text_font_size = font_size  # float(((abs(x - x1)) / max_width) * font_size)
+                        # 识别过程
+                        distance_list = []
+                        candi_len = len(self.face_encode_list)
+                        for id in range(candi_len):
+                            dist = np.sqrt(
+                                np.sum(np.square(np.subtract(current_emb, self.face_encode_list[id]))))
+                            distance_list.append(dist)
 
-                                cv2.rectangle(frame, (x, y), (x1, y1), (0, 255, 0), 2)
-                                # cv2.putText(frame, 'hhy', (text_x, y), font, text_font_size, (0, 0, 255), 2)
+                        print("distance list", "=" * 30, distance_list)
+                        X = softmax_label([distance_list])
+                        max_index = np.argmax(X, axis=1)[0]
+                        prob = (str)(round(100 * (X[0][max_index]), 2))
+                        min_distance = distance_list[max_index]
 
-                                reginized_name = None
-                                emotion_detect = None
-                                cropped = frame[bb[1]:bb[3], bb[0]:bb[2], :]
-                                if (image_save):
-                                    cv2.imwrite('person_pic/hhy' + str(index) + '.jpg', cropped)
-                                    image_save = False
+                        if (min_distance < self.min_face_distance):
+                            reginized_name = os.path.splitext(self.fname_list[max_index])[0]
+                            reginized_name = reginized_name + "(" + prob + "%)"
 
-                                else:
-                                    if (self.emotion_reginition_mode):
-                                        # print('index ================', index)
-                                        t = ori_img[bb[1]:bb[3], bb[0]:bb[2]]
-                                        emotion_detect = self.do_emotion_reginition_process(t)
-
-                                    # 图像处理
-                                    img_list = []
-                                    aligned = misc.imresize(cropped, (self.image_size, self.image_size),
-                                                            interp='bilinear')
-                                    prewhitened = facenet.prewhiten(aligned)
-                                    img_list.append(prewhitened)
-                                    images = np.stack(img_list)
-
-                                    # Run forward pass to calculate embeddings
-                                    feed_dict = {images_placeholder: images, phase_train_placeholder: False}
-                                    emb = sess.run(embeddings, feed_dict=feed_dict)
-                                    # 获取当前检测出的人脸编码值
-                                    current_emb = emb[0, :]
-
-                                    # person_name = knn.predict([current_emb])[0]
-                                    # print("***********************knn classifier person name result:", person_name)
-
-                                    # 识别过程
-                                    distance_list = []
-                                    candi_len = len(face_encode_list)
-                                    for id in range(candi_len):
-                                        dist = np.sqrt(
-                                            np.sum(np.square(np.subtract(current_emb, face_encode_list[id]))))
-                                        distance_list.append(dist)
-
-                                    print("distance list", "=" * 30, distance_list)
-                                    X = softmax_label([distance_list])
-                                    max_index = np.argmax(X, axis=1)[0]
-                                    prob = (str)(round(100 * (X[0][max_index]), 2))
-                                    min_distance = distance_list[max_index]
-
-                                    if (min_distance < self.min_face_distance):
-                                        reginized_name = os.path.splitext(fname_list[max_index])[0]
-                                        reginized_name = reginized_name + "(" + prob + "%)"
-
-                                    else:
-                                        reginized_name = 'unknown'
-                                    print('reginized person is:', reginized_name)
-
-                                    recognition_title = reginized_name
-                                    if (emotion_detect is not None):
-                                        recognition_title = reginized_name + "(" + emotion_detect + ")"
-
-                                    # 展示人脸名称
-                                    #speaker.Speak(recognition_title)
-                                    cv2.putText(frame, recognition_title, (text_x, y), font, text_font_size,
-                                                (0, 0, 255),
-                                                2)
                         else:
-                            pass
-                    else:
-                        pass
-                    # display the resulting frame
-                    cv2.imshow('frame', frame)
-                # when everything done , release the capture
-                cap.release()
-                cv2.destroyAllWindows()
+                            reginized_name = 'unknown'
+                        print('reginized person is:', reginized_name)
+
+                        recognition_title = reginized_name
+                        if (emotion_detect is not None):
+                            recognition_title = reginized_name + "(" + emotion_detect + ")"
+                        obj =DetectObj(i,bb,recognition_title)
+                        res.append(obj)
+            return res
 
 
-if __name__ == "__main__":
-
-    path = os.getcwd() + config.path
-
-    fg = face_reginition(config.dburl, config.username, config.password, config.dbname, config.face_recognition_model,
-                         path, config.face_emotion_model, config.face_estimator_model)
-
-    if (config.init_database):
-        # 初始数据库数据
-        fg.save_face_feature_to_db()
-    else:
-        fg.do_face_reginition_process()
+# if __name__ == "__main__":
+#
+#     path = os.getcwd() + config.path
+#
+#     fg = face_reginition(config.dburl, config.username, config.password, config.dbname, config.face_recognition_model,
+#                          path, config.face_emotion_model, config.face_estimator_model)
+#
+#     if (config.init_database):
+#         # 初始数据库数据
+#         fg.save_face_feature_to_db()
+#     else:
+#         fg.do_face_reginition_process()

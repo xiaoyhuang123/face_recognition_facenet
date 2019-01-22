@@ -15,6 +15,9 @@ import dlib
 import os
 from scipy.spatial import distance
 
+import win32com.client
+speaker = win32com.client.Dispatch("SAPI.SpVoice")
+
 base_path = os.path.join(os.path.dirname(__file__), "..")
 
 detector = dlib.get_frontal_face_detector()
