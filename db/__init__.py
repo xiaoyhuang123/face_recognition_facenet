@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-#
 
 # -------------------------------------------------------------------------------
-# Name:         demo_test
+# Name:         __init__.py
 # Description:  
 # Author:       huanghongyi
-# Date:         2019/1/22
+# Date:         2019/1/24
 # -------------------------------------------------------------------------------
 
-from InputObject import DetectObj,InputEncoder
-import json
-from align import detect_face
-
+if __name__ == "__main__":
+    print('')

@@ -1,0 +1,44 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>webcam</title>
+
+
+</head>
+    <body>
+        <canvas id="myCanvas" width="240" height="240" style="border: 1px solid black;"  onmousedown="down = 1;" onmouseup="down = 0;" onmousemove="cnvs_getCoordinates(event)" onmouseout="cnvs_clearCoordinates()"></canvas>
+<form  method="post" style="display: none">
+    {% csrf_token %}
+    <input type="text"  name="img" id="photo">
+    <button type="submit"  id="submit">submit</button>
+</form>
+<div >
+    <button type="button" onclick="upload()">上传</button>
+</div>
+    <script type="javascript">
+        down = 0;//记录鼠标按下状态
+function upload(){
+    var canvas = document.getElementById("myCanvas");
+    url = canvas.toDataURL("image/png");//将canvas转化为png的base64编码
+    document.getElementById('photo').value = url;
+    document.getElementById('submit').click();//触发from的submit
+}
+//当鼠标按下并滑动时，绘制黑色圆点
+function cnvs_getCoordinates(e){
+    if(down) {
+        var canvas = document.getElementById("myCanvas");
+        bbox = canvas.getBoundingClientRect();
+        x = Math.round((e.clientX - bbox.left) * (canvas.width / bbox.width));
+        y = Math.round((e.clientY - bbox.top) * (canvas.height / bbox.height));
+        var ctx=canvas.getContext("2d");
+        ctx.beginPath();
+        ctx.arc(x,y,15,0,360,false);
+        ctx.fill();
+        ctx.closePath();
+    }
+}
+    </script>
+    </body>
+</html>

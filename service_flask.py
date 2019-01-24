@@ -14,11 +14,15 @@ import os
 from face_reginition_service import face_reginition
 from InputObject import DetectObj, NumpyEncoder
 import cv2
+import base64
+from scipy import misc
+import numpy as np
+from HttpResponse.ResponseVo import ResponseVo
 
 app = Flask(__name__)
 
 img_url = "/img_data/"
-label_img_url =""
+label_img_url = ""
 ALLOWED_EXTENSIONS = set(['png', 'jpg', 'JPG', 'PNG', 'gif', 'GIF'])
 
 app.config['UPLOAD_FOLDER'] = "img_data"
@@ -26,8 +30,9 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 
 # 加载人脸识别服务
 path = os.getcwd() + config.path
-fg = face_reginition(config.dburl, config.username, config.password, config.dbname, config.face_recognition_model,
-                     path, config.face_emotion_model, config.face_estimator_model)
+
+fg = face_reginition(config.sqllite_dburl, config.username, config.password, config.sqllite_dbname, config.face_recognition_model,
+                       path, config.face_emotion_model, config.face_estimator_model)
 
 
 def imgInputParse(para_dict):
@@ -38,7 +43,6 @@ def imgInputParse(para_dict):
         obj = DetectObj(item['id'], json.loads(item['imgArray']))
         res.append(obj)
     return res
-
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1] in ALLOWED_EXTENSIONS
@@ -51,9 +55,24 @@ def check_contain_chinese(check_str):
     return False
 
 
+def base64_to_image(base64_code):
+    # base64解码
+    img_data = base64.b64decode(base64_code)
+    # 转换为np数组
+    img_array = np.fromstring(img_data, np.uint8)
+    # 转换成opencv可用格式
+    img = cv2.imdecode(img_array, cv2.COLOR_RGB2BGR)
+    return img
+
+
 @app.route('/upload')
 def upload_test():
     return render_template('index.html')
+
+
+@app.route('/')
+def upload_test_():
+    return render_template('img_capture.html')
 
 
 @app.route('/download/<string:filename>', methods=['GET'])
@@ -96,14 +115,14 @@ def up_photo():
     path = basedir + img_url
     file_path = path + img.filename
     if ((username is not None) and (username.strip() != None)):
-        user_pic_path = basedir+"/person_pic/"+username
-        if(not os.path.exists(user_pic_path)):
+        user_pic_path = basedir + "/person_pic/" + username
+        if (not os.path.exists(user_pic_path)):
             os.mkdir(user_pic_path)
-        file_path=user_pic_path+"/"+img.filename
+        file_path = user_pic_path + "/" + img.filename
         img.save(file_path)
         print('上传头像成功,name=', username)
-        ret,msg = save_face_process(file_path, username)
-        response = json.dumps({"result": ret, "msg":msg})
+        ret, msg = save_face_process(file_path, username)
+        response = json.dumps({"result": ret, "msg": msg})
     else:
         img.save(file_path)
         response = face_process(file_path)
@@ -111,6 +130,56 @@ def up_photo():
     print("response =====", response)
     resp = Response_headers(response)
     return resp
+
+
+@app.route('/up_photo1', methods=['post'])
+def up_photo1():
+    dt = request.form.to_dict()
+    fileData = str(dt.get('fileData')).split(',')[1]
+    filename = dt.get('fileName')
+    img = base64.b64decode(fileData)
+    print("filename=", filename, "    fileData   ======================", fileData)
+
+    # 判断文件名是否存在中文
+    if (not allowed_file(filename)):
+        return ResponseVo("1001","Img format illegal!",None).Response_headers()
+    if (check_contain_chinese(filename)):
+        return ResponseVo("1002", "Img name contain chinese charcter!", None).Response_headers()
+
+    username = str(request.form.get("username"))
+    process_type = int(request.form.get("type"))
+    path = basedir + img_url
+    file_path = path + filename
+    if(process_type == 0):
+        if ((username is not None) and (username.strip() != None)):
+            user_pic_path = basedir + "/person_pic/" + username
+            if (not os.path.exists(user_pic_path)):
+                os.mkdir(user_pic_path)
+            file_path = user_pic_path + "/" + filename
+
+            file = open(file_path, 'wb')  # 保存为0.png的图片
+            file.write(img)
+            file.close()
+            print('上传头像成功,name=', username)
+
+            ret, msg = save_face_process(file_path, username)
+            response = ResponseVo(0, msg, ret).Response_headers()  # json.dumps({"result": ret, "msg": msg})
+        else:
+            return ResponseVo("1003", "Name of the photo can not be none!", None).Response_headers()
+    elif(process_type==1):
+        img = base64_to_image(fileData)
+        response = face_process(file_path, img)
+
+        # response=[]
+        # obj = DetectObj(0, [127,185,277,372], "hhy(42.95%)")
+        # response.append(obj)
+
+        #{"code": 0, "msg": "success", "data": [{"id": 0, "pos": "127@185@277@372", "name": "12(42.95%)"}]}
+        response = ResponseVo(0, "success", [d.__dict__ for d in response]).Response_headers()
+
+    print("response =====", response)
+    #resp = Response_headers(response)
+    return response
 
 
 @app.route('/hello', methods=['GET', 'POST'])
@@ -145,14 +214,14 @@ def hello():
     return resp
 
 
-def face_process(filePath):
-    p =filePath # basedir + filePath
-    result = fg.do_face_reginition_process_from_input(p)
+def face_process(filePath, img):
+    p = filePath  # basedir + filePath
+    result = fg.do_face_reginition_process_from_input(p, img)
     return result
 
 
 def save_face_process(filePath, name):
-    p = [] #basedir + filePath
+    p = []  # basedir + filePath
     p.append(filePath)
     result, msg = fg.save_face_feature_to_db_from_input(p, name)
     return result, msg

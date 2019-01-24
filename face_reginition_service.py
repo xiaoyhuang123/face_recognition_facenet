@@ -28,6 +28,7 @@ from utils import knn_clf_for_face_reginition,softmax_label,to_rgb,Logger
 logger = Logger(__name__)
 
 import logging
+import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +44,15 @@ class face_reginition:
         # 运行模式  0：展示模式  1：人脸检测模式  2：手势识别模式
         self.running_mode = 1
 
-        # 数据库设置相关
-        self.dburl = dburl
-        self.username = username
-        self.password = password
-        self.dbname = dbname
+        # mysql数据库设置相关
+        # self.dburl = dburl
+        # self.username = username
+        # self.password = password
+        # self.dbname = dbname
+
+        # sqllite数据库设置相关
+        self.sqllite_dburl = dburl
+        self.sqllite_dbname = dbname
 
         # 预训练好模型
         self.model = model
@@ -170,7 +175,8 @@ class face_reginition:
         face_encode_list = []
 
         # 打开数据库连接
-        db = pymysql.connect(self.dburl, self.username, self.password, self.dbname, charset='utf8')
+        #db = pymysql.connect(self.dburl, self.username, self.password, self.dbname, charset='utf8')
+        db = sqlite3.connect(self.sqllite_dburl)
 
         # 使用cursor()方法获取操作游标
         cursor = db.cursor()
@@ -179,9 +185,9 @@ class face_reginition:
         sql = "SELECT f_name,f_encode,f_file_name FROM face_data"
         try:
             # 执行SQL语句
-            cursor.execute(sql)
+            results =cursor.execute(sql)
             # 获取所有记录列表
-            results = cursor.fetchall()
+            #results = cursor.fetchall()
             for row in results:
                 fname = row[0]
                 face_encode_str = row[1]
@@ -337,7 +343,8 @@ class face_reginition:
                 print('')
 
                 # 打开数据库连接
-                db = pymysql.connect(self.dburl, self.username, self.password, self.dbname, charset='utf8')
+                #db = pymysql.connect(self.dburl, self.username, self.password, self.dbname, charset='utf8')
+                db = sqlite3.connect(self.sqllite_dburl)
                 try:
                     # 使用cursor()方法获取操作游标
                     cursor = db.cursor()
@@ -392,7 +399,8 @@ class face_reginition:
                 print('')
 
                 # 打开数据库连接
-                db = pymysql.connect(self.dburl, self.username, self.password, self.dbname, charset='utf8')
+                #db = pymysql.connect(self.dburl, self.username, self.password, self.dbname, charset='utf8')
+                db = sqlite3.connect(self.sqllite_dburl)
                 try:
                     # 使用cursor()方法获取操作游标
                     cursor = db.cursor()
@@ -402,8 +410,7 @@ class face_reginition:
                         # f_name = os.path.splitext(img_files_set[i])[0]
                         f_name = name#str(img_files_set[i]).split('/')[0]
                         f_file_name = img_files_set[i]
-                        sql = "INSERT INTO face_data(f_name,f_encode,f_file_name)  VALUES('%s','%s','%s')" % (
-                            f_name, f_encode, f_file_name)
+                        sql = "INSERT INTO face_data(f_name,f_encode,f_file_name)  VALUES('%s','%s','%s')" % ( f_name, f_encode, f_file_name)
                         print('sql=', sql)
                         # 执行sql语句
                         cursor.execute(sql)
@@ -431,11 +438,15 @@ class face_reginition:
                 res = [angry, fear, happy, sad, surprise, neutral]
                 return emotion_labels[res.index(max(res))]
 
-    def do_face_reginition_process_from_input(self, filepath):
+    def do_face_reginition_process_from_input(self, filepath, img=None):
         with self.sess.as_default():
             with self.sess.graph.as_default():
+                frame = None
                 # 处理传入的图片
-                frame = misc.imread(filepath)
+                if(img is None):
+                    frame = misc.imread(filepath)
+                else:
+                    frame = img
                 res=[]
 
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)

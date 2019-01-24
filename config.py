@@ -13,6 +13,10 @@ username = 'root'
 password = '123456'
 dbname = 'face_db'
 
+# mysql数据库
+sqllite_dburl = 'db/face_db.db'
+sqllite_dbname = 'face_db'
+
 # 候选集合图像集合
 path = "/person_pic/"
 

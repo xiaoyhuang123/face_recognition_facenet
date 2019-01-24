@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>GET VIDEO</title>
+    <meta charset="utf-8">
+    <style>
+        header {
+            background-color: white;
+            color: black;
+            text-align: center;
+            padding: 1px;
+        }
+
+        .div-a {
+            float: left;
+            width: 49%;
+            height: 450px;
+            border: 1px solid #FFF;
+            alignment: center;
+        }
+
+        .div-b {
+            float: right;
+            width: 49%;
+            height: 450px;
+            border: 1px solid #FFF;
+            align-content: center;
+        }
+
+        .div-c {
+            float: bottom;
+            width: 100%;
+            height: 40px;
+            margin-top: 410px;
+            border: 1px solid #FFF
+        }
+    </style>
+</head>
+<body style="text-align: center">
+<header>
+    <h1>Face Detection</h1>
+</header>
+<div class="div-a">
+    <div style="width: 100%;height: 90%; border:1px solid #F00;text-align: center;padding-top: 25px">
+        <video id="video" width="380px" height="380px" autoplay="autoplay"></video>
+    </div>
+    <div style="width: 100%;height: 8%; text-align: center">
+        <input type="button" title="open Camera" value="open Camera" onclick="getMedia()"/>
+    </div>
+</div>
+<div class="div-b">
+    <div id="container" style="width: 100%;height: 90%; border:1px solid #F00;text-align: center;padding-top: 25px">
+        <canvas id="canvas" width="380px" height="380px"></canvas>
+    </div>
+    <div style="width: 100%;height: 10%; text-align: center; margin-top: auto">
+        <button id="snap" onclick="takePhoto(0)">take Photo and upload</button>
+        <button id="snap1" onclick="settimer()">take Photo and detect</button>
+    </div>
+</div>
+<br>
+<div class="div-c">
+    <br>name：<input type="text" class="txt_input" name="name" id="name"/>
+</div>
+<script>
+    var cameraOn=True;
+    function getMedia() {
+        let constraints = {
+            video: {width: 380, height: 380},
+            audio: true
+        };
+        //获得video摄像头区域
+        let video = document.getElementById("video");
+        //这里介绍新的方法，返回一个 Promise对象
+        // 这个Promise对象返回成功后的回调函数带一个 MediaStream 对象作为其参数
+        // then()是Promise对象里的方法
+        // then()方法是异步执行，当then()前的方法执行完后再执行then()内部的程序
+        // 避免数据没有获取到
+        let promise = navigator.mediaDevices.getUserMedia(constraints);
+        promise.then(function (MediaStream) {
+            video.srcObject = MediaStream;
+            video.play();
+        });
+        cameraOn = true;
+    }
+
+    var fl=false;
+    var timer=null;
+    function settimer() {
+        fl=!fl;
+        if(fl){
+            timer=setInterval(takePhotoByTimer,500);
+        }
+        else{
+            clearInterval(timer);
+            timer=null;
+        }
+    }
+      function takePhotoByTimer(){
+        takePhoto(1);
+      }
+
+    function takePhoto(flag) {
+
+        if(!cameraOn){
+              alert("please open camera first !");
+                return;
+        }
+        if(flag ==0){
+            var userName = document.getElementById("name");
+            obj =userName.value;
+            if(typeof obj == "undefined" || obj == null || obj == ""){
+                alert("label name of person must not be null, please input!");
+                return;
+            }
+        }
+
+        //获得Canvas对象
+        let video = document.getElementById("video");
+        let canvas = document.getElementById("canvas");
+        let ctx = canvas.getContext('2d');
+
+        canvas.setAttribute("width", 0);
+        canvas.setAttribute("width", 380);
+        ctx.clearRect(0,0,380,380);
+
+        ctx.drawImage(video, 0, 0, 380, 380);
+        handleSave(ctx,flag);
+    }
+
+    function handleSave(ctx,flag) {
+        //导出base64格式的图片数据
+        var mycanvas = document.getElementById("canvas");
+        var userName = document.getElementById("name");
+        var base64Data = mycanvas.toDataURL("image/jpeg", 1.0);
+        //alert(base64Data)
+        //封装blob对象
+        var blob = dataURItoBlob(base64Data);
+        //组装formdata
+        var fd = new FormData();
+        fd.append("fileData", base64Data);//fileData为自定义
+        fd.append("fileName", uuid() + ".jpg");//fileName为自定义，名字随机生成或者写死，看需求
+        fd.append("username", userName.value);//fileName为自定义，名字随机生成或者写死，看需求
+        fd.append("type", flag);//0 录入，1：检测
+
+
+        //ajax上传，ajax的形式随意，JQ的写法也没有问题
+        //需要注意的是服务端需要设定，允许跨域请求。数据接收的方式和<input type="file"/> 上传的文件没有区别
+        var xmlHttp = new XMLHttpRequest();
+
+        //ajax回调
+        xmlHttp.onreadystatechange = function () {
+            //todo  your code...
+            if (xmlHttp.readyState == 4 && xmlHttp.status == 200) {
+                //{"code": 0, "msg": "success", "data": [{"id": 0, "pos": "127@185@277@372", "name": "12(42.95%)"}]}
+                setResult(ctx,xmlHttp.responseText);
+                //alert(xmlHttp.responseText);
+                //document.getElementById("name").innerHTML=xmlHttp.responseText;
+                //$('#name1').val(xmlHttp.responseText);
+
+            //      ctx.rect(0, 0, 50, 50);
+            // ctx.lineWidth = 5;
+            // ctx.strokeStyle = 'red';
+            // ctx.stroke();
+            }
+        };
+        xmlHttp.open("POST", "http://127.0.0.1:5000/up_photo1");
+        xmlHttp.setRequestHeader("Authorization", 'Bearer ' + localStorage.token);//设置请求header,按需设定，非必须
+        xmlHttp.send(fd);
+        //alert(xmlhttp.readyState)
+    };
+
+    function uuid() {
+        var s = [];
+        var hexDigits = "0123456789abcdef";
+        for (var i = 0; i < 36; i++) {
+            s[i] = hexDigits.substr(Math.floor(Math.random() * 0x10), 1);
+        }
+        s[14] = "4";  // bits 12-15 of the time_hi_and_version field to 0010
+        s[19] = hexDigits.substr((s[19] & 0x3) | 0x8, 1);  // bits 6-7 of the clock_seq_hi_and_reserved to 01
+        s[8] = s[13] = s[18] = s[23] = "-";
+
+        var uuid = s.join("");
+        return uuid;
+    }
+
+    function dataURItoBlob(base64Data) {
+        var byteString;
+        if (base64Data.split(',')[0].indexOf('base64') >= 0)
+            byteString = atob(base64Data.split(',')[1]);
+        else
+            byteString = unescape(base64Data.split(',')[1]);
+        var mimeString = base64Data.split(',')[0].split(':')[1].split(';')[0];
+        var ia = new Uint8Array(byteString.length);
+        for (var i = 0; i < byteString.length; i++) {
+            ia[i] = byteString.charCodeAt(i);
+        }
+        return new Blob([ia], {type: mimeString});
+    };
+
+    function setResult(ctx, result) {
+        //{"code": 0, "msg": "success", "data": [{"id": 0, "pos": "127@185@277@372", "name": "12(42.95%)"}]}
+          var obj = JSON.parse(result); //由JSON字符串转换为JSON对象
+        var data = obj.data;
+        for (var i = 0, l = data.length; i < l; i++) {
+            var pos = data[i].pos;
+            var t = pos.split('@');
+            var x1 = parseInt(t[0]);
+            var y1 = parseInt(t[1]);
+            var x2 = parseInt(t[2]);
+            var y2 = parseInt(t[3]);
+
+            ctx.font = "18px bold 黑体"; // 设置字体
+            ctx.fillStyle = "#ff0"; // 设置颜色
+            ctx.textAlign = "center";  // 设置水平对齐方式
+            ctx.textBaseline = "middle";// 设置垂直对齐方式
+            ctx.fillText(data[i].name, x1, y1); // 绘制文字（参数：要写的字，x坐标，y坐标）
+
+            ctx.rect(x1, y1, x2-x1, y2-y1);
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = 'red';
+            ctx.stroke();
+        }
+    }
+</script>
+</body>
+</html>

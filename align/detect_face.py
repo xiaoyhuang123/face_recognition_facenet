@@ -688,8 +688,8 @@ def generateBoundingBox(imap, reg, scale, t):
         reg = np.empty((0,3))
     bb = np.transpose(np.vstack([y,x]))
     # np.fix 向靠近0一侧取整
-    q1 = np.fix((stride*bb+1)/scale)
-    q2 = np.fix((stride*bb+cellsize-1+1)/scale)
+    q1 = np.fix((stride*bb+0)/scale)
+    q2 = np.fix((stride*bb+cellsize-1+0)/scale)
     boundingbox = np.hstack([q1, q2, np.expand_dims(score,1), reg])
     return boundingbox, reg
  

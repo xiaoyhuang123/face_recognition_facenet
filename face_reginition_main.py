@@ -142,8 +142,8 @@ class face_reginition:
     # openCV capture setting
     def get_capture_cv2(self):
         cap = cv2.VideoCapture(0)
-        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 500)  # 宽度
-        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 300)  # 高度
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 380)  # 宽度
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 380)  # 高度
         # cap.set(cv2.CAP_PROP_FPS, 50)  # 帧数
         return cap
 
